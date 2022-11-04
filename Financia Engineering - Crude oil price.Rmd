@@ -1,0 +1,197 @@
+---
+title: "Financia Engineering - Crude oil prices"
+author: "AyşegülBinbaş" 
+date: "04 02 2022"
+output: word_document
+---
+
+```{r}
+
+library(dplyr)
+library(magrittr)
+library(readxl)
+library(TSA)
+library(forecast)
+
+
+
+oil <- read_excel("Crudeoilprices.xlsx")
+oil$Date<-as.Date(oil$Date,format="%d.%m.%y")
+oil<-oil%>%mutate(Crude.Oil.Price=as.numeric(gsub(",",".",Crude.Oil.Price)))
+
+
+
+
+S0 <- 0.15   
+mu <- mean(exp(oil$Crude.Oil.Price))
+sd <- sd(exp(oil$Crude.Oil.Price))
+T <- 0.5
+
+
+
+(mean <- log(S0) + (mu-sd^2/2)*T)
+(var   <- sd^2*T)
+(stdev <- sqrt(var))
+
+(CI <- c(mean-1.96*stdev, mean+1.96*stdev))
+
+vol_percent = sd(exp(oil$Crude.Oil.Price)) / mean(exp(oil$Crude.Oil.Price))
+vol_percent 
+
+
+monthly_sigma <- sd * sqrt(252/12)  
+monthly_sigma
+
+BlackScholes <- function(S, K, r, T, sig, type){
+  
+  if(type=="C"){
+    d1 <- (log(S/K) + (r + sig^2/2)*T) / (sig*sqrt(T))
+    d2 <- d1 - sig*sqrt(T)
+    
+    value <- S*pnorm(d1) - K*exp(-r*T)*pnorm(d2)
+    return(value)}
+  
+  if(type=="P"){
+    d1 <- (log(S/K) + (r + sig^2/2)*T) / (sig*sqrt(T))
+    d2 <- d1 - sig*sqrt(T)
+    
+    value <-  (K*exp(-r*T)*pnorm(-d2) - S*pnorm(-d1))
+    return(value)}
+}
+
+
+#This function first calculates the d1 and d2 parameters required for the Black-Scholes model and then uses pnorm() command of R which simulates a cumulative normal distribution.
+# In order to use the BlackScholes function to value a call and a put option, we can run the following lines:
+
+
+put <- BlackScholes(0.15,0.3,0.08,0.5,0.48,"P")
+put
+Put <- function(S, K, r, T, sigma) {
+  d1  <-  (log(S/K) + (r + sigma^2/2)*T) / (sigma*sqrt(T))
+  d2  <-  d1 - sigma*sqrt(T)
+  -S * pnorm(-d1) + K*exp(-r*T)*pnorm(-d2)
+}
+
+```
+
+
+
+
+Assumptions of the Black-Scholes Model
+Lognormal distribution: It was concluded that this assumption was violated because the converted data did not follow a normal distribution with outliers.
+
+No dividends: We assume that the Black-Scholes model does not require any initial payment or returns.
+
+Expiration date: As we tried to put option price with the maturity duration of 6 months after the end date of our data set, this assumption already exists.
+
+Random walk: We checked this assumption and we showed below.
+
+Frictionless market: As our model does not include the costs of commission and brokerage, the Frictionless market assumption is applied for our analysis.
+
+Risk-free interest rate: The nominal interest rate is 8% is given to us in the question.
+
+Normal distribution: Stock returns are not normally distributed. We assume that the volatility of the market is constant over time.
+
+No arbitrage: There is no arbitrage because of the free arbitrage in part a.
+
+```{r}
+
+library(dplyr)
+library(magrittr)
+library(readxl)
+library(TSA)
+library(forecast)
+
+
+
+
+
+
+
+#Checking The Stationarity Assumption
+CrudeOilPrice<-oil$Crude.Oil.Price
+plot(CrudeOilPrice, type = "l", lwd = 2.5, xlab = "Time", ylab = "Crude Spot Price", col = 1, main = "Historical Spot Price for Brent Fuel")
+
+
+#When we look at the graph, 
+#ıt can be seen that there exist some up and downs ,and there is no constant mean aroud 0.
+# Hence, ıt can be saıd that the data is not stationary.
+
+hist(CrudeOilPrice, main='Crude Oil Spot Prices', xlab='Crude Oil Price', col='darkblue', breaks = 1000, border="red", freq=F)
+#lines(density(CrudeOilPrice))
+
+library(pdR)
+library(tseries)
+
+
+
+ndiffs(CrudeOilPrice)
+#Taking 1st time difference is enough.
+#nsdiffs(CrudeOilPrice)
+#Non seasonal data
+# To solve the non stationary problem,we will difference of our data. 
+difcrudeoilprice = diff(CrudeOilPrice)
+head(difcrudeoilprice)
+
+plot(difcrudeoilprice, type = "l", lwd = 2.5, xlab = "Time", ylab = "CrudeLog Returns", col = 1, main = "Brent Crude Oil Log Returns")
+
+#As can be seen from the graph that ıt seem stationart , but there are some outliers.To be sure we can apply some formal tests.
+
+kpss.test(difcrudeoilprice,null=c("Level")) #to check stationary or not
+
+#p-value greater than printed p-value,so we cannot reject H0.
+# That means we have enough evidence to claim that the process is stationary.
+#hence, that is the smoothed log-returns or smoothed increments, ln(St)-ln(st-1) of the real oil prices are stationary.
+
+#ADF test: to cleck roots
+
+adf.test(difcrudeoilprice)
+# p-value = 0.0001.Therefore, These results suggest the rejection of the
+#null hypothesis which is implying the stationarity of the standardized increments of the smoothed real oil prices.
+
+#For ACF:
+p1 <- ggAcf(difcrudeoilprice,main="ACF of Crude Oil Prices")
+
+# For PACF :
+p2 <-ggPacf(difcrudeoilprice,main="PACF of Crude Oil Prices")
+
+library(gridExtra)
+
+grid.arrange(p1,p2,ncol=2)
+
+
+#ACF look like stationary,but there are some seasonal patterns.According to PACF we can say that lag 15 is significant.
+
+
+#Checking The Normality Assumption
+
+#In order to check the normality of the standardized log-returns we perform the Jarque-Bera test in which
+# Ho:data standard normal distribution
+#Ha:data is not standard normal distribution
+
+library(tseries)
+
+
+jarque.bera.test(difcrudeoilprice)
+
+# p-value < 2.2e-16 that is less than alpha so, data satisfied the normality assumption.
+
+hist(difcrudeoilprice, freq=FALSE) 
+
+# It is follow normal distribution,according to test.However,there exist some outliers.
+#Wecan also,clean this outliers
+cleaned_difcrudeoilprice=tsclean(difcrudeoilprice)
+hist(cleaned_difcrudeoilprice, freq=FALSE) 
+#Afher using ts clean fns , the shape of the histogram more clear.
+
+#Checking The Dependence Assumption
+#checkresiduals(cleaned_difcrudeoilprice)
+
+#We can also use correlogram of the autocorrelation and partial autocorrelation
+#there is dependence in the data set.
+
+
+# After checking all assumptions, we replaced the given values and found the put option to be 0.1389608.
+
+```
+
